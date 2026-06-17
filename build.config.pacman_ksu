@@ -1,0 +1,42 @@
+# Pacman SukiSU+SUSFS build config — device kernel Image only (no vendor modules).
+# Vendor modules (wifi/bt/gpu) stay STOCK on device; we rely on GKI stable KMI.
+# Based on build.config.mtk.aarch64.mgk, stripped of EXT_MODULES + dtbs kept.
+
+KERNEL_DIR=common
+
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.common
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.lto_thin
+. ${ROOT_DIR}/${KERNEL_DIR}/build.config.aarch64
+
+DEFCONFIG=mgk_64_k515_gki_defconfig
+FRAGMENTS_CONFIG="
+${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/mgk_64_k515_defconfig
+${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/ksu_susfs.config
+"
+PRE_DEFCONFIG_CMDS="KCONFIG_CONFIG=${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/${DEFCONFIG} ${ROOT_DIR}/${KERNEL_DIR}/scripts/kconfig/merge_config.sh -m -r ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/gki_defconfig ${FRAGMENTS_CONFIG}"
+POST_DEFCONFIG_CMDS="rm ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/${DEFCONFIG}"
+INSTALL_MOD_STRIP=1
+
+DTC='${OUT_DIR}/scripts/dtc/dtc'
+
+MAKE_GOALS="
+Image.lz4
+mediatek/mt6886.dtb
+mediatek/k6886v1_64.dtbo
+mediatek/k6886v1_64_1.dtbo
+mediatek/k6886v1_64_2.dtbo
+"
+
+FILES="
+arch/arm64/boot/Image.lz4
+arch/arm64/boot/dts/mediatek/mt6886.dtb
+arch/arm64/boot/dts/mediatek/k6886v1_64.dtbo
+arch/arm64/boot/dts/mediatek/k6886v1_64_1.dtbo
+arch/arm64/boot/dts/mediatek/k6886v1_64_2.dtbo
+"
+
+ABI_OUT_TAG="mtk"
+KMI_SYMBOL_LIST=android/abi_gki_aarch64_mtk
+GKI_MODULES_LIST=android/gki_aarch64_modules
+
+TARGET_BUILD_VARIANT=user
