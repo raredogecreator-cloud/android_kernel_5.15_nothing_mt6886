@@ -79,7 +79,7 @@ jobs:
           if [ -f build/build.sh ]; then
             export LTO=thin
             export BUILD_CONFIG=common/build.config.pacman_ksu
-            build/build.sh CC="ccache clang" 2>&1 | tail -120
+            build/build.sh
           else
             echo "ERROR: build/build.sh missing - manifest is bazel-only, need different approach" >&2
             exit 1
