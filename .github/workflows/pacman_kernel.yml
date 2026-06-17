@@ -1,0 +1,106 @@
+name: Pacman Kernel (NothingOSS source) - SukiSU Ultra + SUSFS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ca-certificates cpio curl flex git \
+            kmod libelf-dev libssl-dev lz4 python3 python-is-python3 \
+            zip zstd rsync ccache
+          mkdir -p ~/bin
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Sync GKI build environment (android13-5.15)
+        run: |
+          mkdir android-kernel && cd android-kernel
+          repo init --depth=1 -u https://android.googlesource.com/kernel/manifest \
+            -b common-android13-5.15 --repo-rev=v2.16
+          repo sync -c -j$(nproc) --no-tags --fail-fast --force-sync
+          echo "=== build harness contents ==="
+          ls -la
+          ls build/ 2>/dev/null && echo "build.sh present: $([ -f build/build.sh ] && echo yes || echo NO-bazel-only)"
+          ls prebuilts/clang/host/linux-x86/ 2>/dev/null | head
+
+      - name: Swap in NothingOSS source as common/
+        run: |
+          cd android-kernel
+          rm -rf common
+          git clone --depth=1 -b mt6886/Pacman/16b \
+            https://github.com/raredogecreator-cloud/android_kernel_5.15_nothing_mt6886.git common
+          echo "NothingOSS source in place. Verify nothing symbol list:"
+          ls common/android/abi_gki_aarch64_nothing 2>/dev/null && echo "nothing KMI list present" || echo "WARN: no nothing KMI list"
+
+      - name: Integrate SukiSU Ultra
+        run: |
+          cd android-kernel/common
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "SukiSU Ultra version:"
+          cat KernelSU*/kernel/Makefile 2>/dev/null | grep -i version | head || true
+
+      - name: Integrate SUSFS (gki-android13-5.15)
+        run: |
+          cd android-kernel
+          git clone --depth=1 https://github.com/ShirkNeko/susfs4ksu.git -b gki-android13-5.15 susfs4ksu
+          cd common
+          cp ../susfs4ksu/kernel_patches/fs/* ./fs/ 2>/dev/null || true
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./include/linux/ 2>/dev/null || true
+          echo "=== available susfs kernel patches ==="
+          ls ../susfs4ksu/kernel_patches/
+          # Apply the main kernel-side SUSFS patch
+          PATCH=$(ls ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch 2>/dev/null || ls ../susfs4ksu/kernel_patches/50_add_susfs*.patch | head -1)
+          echo "Applying $PATCH"
+          patch -p1 < "$PATCH" || echo "WARN: susfs patch had rejects (continuing - SukiSU may carry builtin susfs)"
+
+      - name: Verify build config + KSU/SUSFS fragment present
+        run: |
+          cd android-kernel/common
+          echo "=== build config ==="; cat build.config.pacman_ksu
+          echo "=== ksu fragment ==="; cat arch/arm64/configs/ksu_susfs.config
+
+      - name: Build kernel
+        run: |
+          cd android-kernel
+          if [ -f build/build.sh ]; then
+            export LTO=thin
+            export BUILD_CONFIG=common/build.config.pacman_ksu
+            build/build.sh CC="ccache clang" 2>&1 | tail -120
+          else
+            echo "ERROR: build/build.sh missing - manifest is bazel-only, need different approach" >&2
+            exit 1
+          fi
+
+      - name: Locate outputs
+        run: |
+          cd android-kernel
+          echo "=== Image.lz4 / dtb locations ==="
+          find out -name "Image.lz4" 2>/dev/null
+          find out -name "*.dtb" 2>/dev/null | head
+          find out -name "*.dtbo" 2>/dev/null | head
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacman-nothingoss-kernel
+          path: |
+            android-kernel/out/**/dist/Image.lz4
+            android-kernel/out/**/dist/*.dtb
+            android-kernel/out/**/dist/*.dtbo
+            android-kernel/out/**/Image.lz4
+          retention-days: 7
+          if-no-files-found: warn
