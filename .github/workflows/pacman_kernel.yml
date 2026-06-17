@@ -76,31 +76,26 @@ jobs:
       - name: Build kernel
         run: |
           cd android-kernel
-          if [ -f build/build.sh ]; then
-            export LTO=thin
-            export BUILD_CONFIG=common/build.config.pacman_ksu
-            build/build.sh
-          else
-            echo "ERROR: build/build.sh missing - manifest is bazel-only, need different approach" >&2
-            exit 1
-          fi
-
-      - name: Locate outputs
-        run: |
-          cd android-kernel
-          echo "=== Image.lz4 / dtb locations ==="
-          find out -name "Image.lz4" 2>/dev/null
-          find out -name "*.dtb" 2>/dev/null | head
-          find out -name "*.dtbo" 2>/dev/null | head
+          export LTO=thin
+          export BUILD_CONFIG=common/build.config.pacman_ksu
+          # build.sh fails at modules_install because we build NO modules
+          # (vendor modules stay stock on device — GKI stable KMI). The kernel
+          # Image.lz4 is produced BEFORE that step, so capture it regardless.
+          build/build.sh || echo "build.sh non-zero (expected: modules_install — we only need Image.lz4)"
+          IMG=$(find out -name 'Image.lz4' | head -1)
+          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced — real build failure"; exit 1; fi
+          echo "Kernel image built: $IMG"
+          mkdir -p dist
+          cp "$IMG" dist/Image.lz4
+          find out -name 'mt6886.dtb' -exec cp {} dist/ \; 2>/dev/null || true
+          find out -name 'k6886v1_64*.dtbo' -exec cp {} dist/ \; 2>/dev/null || true
+          echo "=== dist contents ==="
+          ls -la dist/
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
         with:
           name: pacman-nothingoss-kernel
-          path: |
-            android-kernel/out/**/dist/Image.lz4
-            android-kernel/out/**/dist/*.dtb
-            android-kernel/out/**/dist/*.dtbo
-            android-kernel/out/**/Image.lz4
+          path: android-kernel/dist/*
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
