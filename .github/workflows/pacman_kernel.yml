@@ -89,6 +89,20 @@ jobs:
           cp "$IMG" dist/Image.lz4
           find out -name 'mt6886.dtb' -exec cp {} dist/ \; 2>/dev/null || true
           find out -name 'k6886v1_64*.dtbo' -exec cp {} dist/ \; 2>/dev/null || true
+          # capture built .config + Module.symvers for pre-flash KMI verification
+          CONF=$(find out -name '.config' | head -1)
+          cp "$CONF" dist/kernel_built_config 2>/dev/null || true
+          find out -name 'Module.symvers' -exec cp {} dist/ \; 2>/dev/null || true
+          echo "===== KMI / MODULE VERIFICATION ====="
+          echo "--- CONFIG_MODULES / MODVERSIONS ---"
+          grep -E '^CONFIG_MODULES=|^CONFIG_MODVERSIONS=|^CONFIG_MODULE_SIG' "$CONF" || true
+          echo "--- count of =m modules configured ---"
+          grep -c '=m$' "$CONF" || true
+          echo "--- CONFIG_LOCALVERSION ---"
+          grep -E '^CONFIG_LOCALVERSION' "$CONF" || true
+          echo "--- KSU/SUSFS confirmed in built config ---"
+          grep -E '^CONFIG_KSU|^CONFIG_KSU_SUSFS' "$CONF" || true
+          echo "===================================="
           echo "=== dist contents ==="
           ls -la dist/
 
