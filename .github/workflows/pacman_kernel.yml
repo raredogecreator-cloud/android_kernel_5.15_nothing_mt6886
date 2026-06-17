@@ -46,10 +46,11 @@ jobs:
           echo "NothingOSS source in place. Verify nothing symbol list:"
           ls common/android/abi_gki_aarch64_nothing 2>/dev/null && echo "nothing KMI list present" || echo "WARN: no nothing KMI list"
 
-      - name: Integrate SukiSU Ultra
+      - name: Integrate SukiSU Ultra (builtin = susfs-enabled Kconfig)
         run: |
           cd android-kernel/common
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          # 'builtin' branch carries the CONFIG_KSU_SUSFS Kconfig symbols (main does NOT)
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           echo "SukiSU Ultra version:"
           cat KernelSU*/kernel/Makefile 2>/dev/null | grep -i version | head || true
 
