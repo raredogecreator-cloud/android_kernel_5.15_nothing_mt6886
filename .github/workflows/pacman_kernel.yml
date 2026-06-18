@@ -68,6 +68,22 @@ jobs:
           echo "Applying $PATCH"
           patch -p1 < "$PATCH" || echo "WARN: susfs patch had rejects (continuing - SukiSU may carry builtin susfs)"
 
+      - name: Stealth patches (v4)
+        run: |
+          cd android-kernel/common
+          printf '#!/bin/sh\necho "-android13-8-00004-g1c3825f8ac0a-ab14110541"\n' > scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          echo "setlocalversion:"; sh scripts/setlocalversion
+          sed -i '/#include <linux\/kernel.h>/a\#include <linux\/cred.h>' kernel/kallsyms.c
+          python3 -c "
+          f=open('kernel/kallsyms.c');s=f.read();f.close()
+          o=chr(9)+'if (!iter->name[0])'+chr(10)+chr(9)+chr(9)+'return 0;'
+          n=o+chr(10)+chr(10)+chr(9)+'/* Hide KSU/SUSFS symbols from apps */'+chr(10)+chr(9)+'if (current_uid().val >= 10000) {'+chr(10)+chr(9)+chr(9)+'if (strstr(iter->name, '+chr(34)+'ksu_'+chr(34)+') || strstr(iter->name, '+chr(34)+'susfs_'+chr(34)+'))'+chr(10)+chr(9)+chr(9)+chr(9)+'return 0;'+chr(10)+chr(9)+'}'
+          f=open('kernel/kallsyms.c','w');f.write(s.replace(o,n,1));f.close()
+          print('kallsyms patched')
+          "
+          grep -B2 -A10 "Hide KSU" kernel/kallsyms.c
+
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
           cd android-kernel/common
@@ -78,6 +94,7 @@ jobs:
         run: |
           cd android-kernel
           export LTO=thin
+          export SOURCE_DATE_EPOCH=1758037939
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
           # (vendor modules stay stock on device — GKI stable KMI). The kernel
