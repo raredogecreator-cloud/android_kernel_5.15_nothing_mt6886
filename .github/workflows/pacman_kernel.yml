@@ -68,20 +68,6 @@ jobs:
           echo "Applying $PATCH"
           patch -p1 < "$PATCH" || echo "WARN: susfs patch had rejects (continuing - SukiSU may carry builtin susfs)"
 
-      - name: Stealth version string (v3)
-        run: |
-          cd android-kernel/common
-          # setlocalversion produces the ENTIRE suffix after 5.15.189
-          # Replace with exact stock output â€” no -dirty, no +, stock hash
-          printf '#!/bin/sh\necho "-android13-8-00004-g1c3825f8ac0a-ab14110541"\n' > scripts/setlocalversion
-          chmod +x scripts/setlocalversion
-          echo "setlocalversion output:"; sh scripts/setlocalversion
-          # v4: Filter ksu_/susfs_ from /proc/kallsyms for UID >= 10000
-          sed -i '/#include <linux\/kernel.h>/a\#include <linux\/cred.h>' kernel/kallsyms.c
-          python3 -c "f=open('kernel/kallsyms.c');s=f.read();f.close();o='\tif (!iter->name[0])\n\t\treturn 0;';n=o+'\\n\\n\\t/* Hide KSU/SUSFS symbols from apps */\\n\\tif (current_uid().val >= 10000) {\\n\\t\\tif (strstr(iter->name, \"ksu_\") || strstr(iter->name, \"susfs_\"))\\n\\t\\t\\treturn 0;\\n\\t}';f=open('kernel/kallsyms.c','w');f.write(s.replace(o,n,1));f.close();print('kallsyms patched')"
-          grep -B2 -A10 "Hide KSU" kernel/kallsyms.c
-
-
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
           cd android-kernel/common
@@ -92,14 +78,13 @@ jobs:
         run: |
           cd android-kernel
           export LTO=thin
-          export SOURCE_DATE_EPOCH=1758037939
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
-          # (vendor modules stay stock on device Ã¢â‚¬â€ GKI stable KMI). The kernel
+          # (vendor modules stay stock on device — GKI stable KMI). The kernel
           # Image.lz4 is produced BEFORE that step, so capture it regardless.
-          build/build.sh || echo "build.sh non-zero (expected: modules_install Ã¢â‚¬â€ we only need Image.lz4)"
+          build/build.sh || echo "build.sh non-zero (expected: modules_install — we only need Image.lz4)"
           IMG=$(find out -name 'Image.lz4' | head -1)
-          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced Ã¢â‚¬â€ real build failure"; exit 1; fi
+          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced — real build failure"; exit 1; fi
           echo "Kernel image built: $IMG"
           mkdir -p dist
           cp "$IMG" dist/Image.lz4
