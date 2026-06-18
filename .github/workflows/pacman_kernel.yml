@@ -68,36 +68,26 @@ jobs:
           echo "Applying $PATCH"
           patch -p1 < "$PATCH" || echo "WARN: susfs patch had rejects (continuing - SukiSU may carry builtin susfs)"
 
-      - name: Stealth fixes (v2 â€” /proc/version, dmesg, config.gz)
+      - name: Stealth version string (v3)
         run: |
           cd android-kernel/common
-          # setlocalversion produces the ENTIRE version suffix after 5.15.189
-          # Stock output: -android13-8-00004-g1c3825f8ac0a-ab14110541
-          # V1 output:    -android13-8-g797e548cd449-dirty
-          # We hardcode stock. The Makefile does: KERNELRELEASE = 5.15.189 + stdout
+          # setlocalversion produces the ENTIRE suffix after 5.15.189
+          # Replace with exact stock output — no -dirty, no +, stock hash
           printf '#!/bin/sh\necho "-android13-8-00004-g1c3825f8ac0a-ab14110541"\n' > scripts/setlocalversion
           chmod +x scripts/setlocalversion
-          echo "=== setlocalversion ==="
-          cat scripts/setlocalversion
-          echo "=== output ==="
-          sh scripts/setlocalversion
+          echo "setlocalversion output:"; sh scripts/setlocalversion
+
 
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
           cd android-kernel/common
+          echo "=== build config ==="; cat build.config.pacman_ksu
           echo "=== ksu fragment ==="; cat arch/arm64/configs/ksu_susfs.config
-          echo "=== setlocalversion ==="; cat scripts/setlocalversion
 
       - name: Build kernel
-        env:
-          KBUILD_BUILD_TIMESTAMP: "Tue Sep 16 15:52:19 UTC 2025"
-          KBUILD_BUILD_VERSION: "1"
-          SOURCE_DATE_EPOCH: "1758037939"
         run: |
           cd android-kernel
           export LTO=thin
-          export KBUILD_BUILD_TIMESTAMP="Tue Sep 16 15:52:19 UTC 2025"
-          export KBUILD_BUILD_VERSION=1
           export SOURCE_DATE_EPOCH=1758037939
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
