@@ -76,6 +76,19 @@ jobs:
           printf '#!/bin/sh\necho "-android13-8-00004-g1c3825f8ac0a-ab14110541"\n' > scripts/setlocalversion
           chmod +x scripts/setlocalversion
           echo "setlocalversion output:"; sh scripts/setlocalversion
+          # Filter ksu_*/susfs_ symbols from /proc/kallsyms for apps (UID >= 10000)
+          # s_show() return 0 = skip line in seq_file output, same as kernel does for unnamed symbols
+          sed -i '/^#include <linux\/kernel.h>/a #include <linux/cred.h>' kernel/kallsyms.c
+          sed -i '/Some debugging symbols have no name.*Ignore them/,/return 0;/{
+            /return 0;/a\
+\n\t/* Hide KSU/SUSFS symbols from apps */\
+\tif (current_uid().val >= 10000) {\
+\t\tif (strstr(iter->name, "ksu_") || strstr(iter->name, "susfs_"))\
+\t\t\treturn 0;\
+\t}
+          }' kernel/kallsyms.c
+          echo "=== kallsyms.c patched ==="
+          grep -A8 "Some debugging symbols" kernel/kallsyms.c
 
 
       - name: Verify build config + KSU/SUSFS fragment present
