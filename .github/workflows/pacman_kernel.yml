@@ -71,30 +71,39 @@ jobs:
       - name: Stealth fixes (v2 â€” /proc/version, dmesg, config.gz)
         run: |
           cd android-kernel/common
-          # Remove -dirty and trailing + from kernel version string
-          sed -i 's/-dirty//' scripts/setlocalversion
-          sed -i 's/+$//' scripts/setlocalversion
-          # Also neutralize the entire scmversion so LOCALVERSION_AUTO=n is fully respected
-          sed -i 's/scm_version {/scm_version {\n\treturn/g' scripts/setlocalversion
-          echo "setlocalversion patched: -dirty, +, scmversion all neutralized"
-          echo "--- verify setlocalversion changes ---"
-          head -30 scripts/setlocalversion
+          # Kill setlocalversion entirely â€” we hardcode LOCALVERSION in defconfig
+          printf '#!/bin/sh\nexit 0\n' > scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          echo "setlocalversion replaced with no-op"
+          cat scripts/setlocalversion
+          # Also patch kleaf stamp.bzl if present (bazel builds)
+          if [ -f ../build/kernel/kleaf/impl/stamp.bzl ]; then
+            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ../build/kernel/kleaf/impl/stamp.bzl
+          fi
+          # Force timestamp into Makefile top-level so build.sh can't override
+          echo 'export KBUILD_BUILD_TIMESTAMP=Tue Sep 16 15:52:19 UTC 2025' >> ../build.config.constants
+          echo 'export KBUILD_BUILD_VERSION=1' >> ../build.config.constants
+          # Also inject directly into the kernel Makefile as fallback
+          sed -i 's|^KBUILD_BUILD_TIMESTAMP ?=.*|KBUILD_BUILD_TIMESTAMP = Tue Sep 16 15:52:19 UTC 2025|' Makefile 2>/dev/null || true
 
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
           cd android-kernel/common
           echo "=== build config ==="; cat build.config.pacman_ksu
           echo "=== ksu fragment ==="; cat arch/arm64/configs/ksu_susfs.config
+          echo "=== setlocalversion ==="; cat scripts/setlocalversion
 
       - name: Build kernel
         env:
           KBUILD_BUILD_TIMESTAMP: "Tue Sep 16 15:52:19 UTC 2025"
           KBUILD_BUILD_VERSION: "1"
+          SOURCE_DATE_EPOCH: "1758117139"
         run: |
           cd android-kernel
           export LTO=thin
           export KBUILD_BUILD_TIMESTAMP="Tue Sep 16 15:52:19 UTC 2025"
           export KBUILD_BUILD_VERSION=1
+          export SOURCE_DATE_EPOCH=1758117139
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
           # (vendor modules stay stock on device â€” GKI stable KMI). The kernel
