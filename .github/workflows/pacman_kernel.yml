@@ -72,7 +72,7 @@ jobs:
         run: |
           cd android-kernel/common
           # setlocalversion produces the ENTIRE suffix after 5.15.189
-          # Replace with exact stock output Ã¢â‚¬â€ no -dirty, no +, stock hash
+          # Replace with exact stock output --- no -dirty, no +, stock hash
           printf '#!/bin/sh\necho "-android13-8-00004-g1c3825f8ac0a-ab14110541"\n' > scripts/setlocalversion
           chmod +x scripts/setlocalversion
           echo "setlocalversion output:"; sh scripts/setlocalversion
@@ -104,11 +104,11 @@ PYEOF
           export SOURCE_DATE_EPOCH=1758037939
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
-          # (vendor modules stay stock on device ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â GKI stable KMI). The kernel
+          # (vendor modules stay stock on device -------- GKI stable KMI). The kernel
           # Image.lz4 is produced BEFORE that step, so capture it regardless.
-          build/build.sh || echo "build.sh non-zero (expected: modules_install ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â we only need Image.lz4)"
+          build/build.sh || echo "build.sh non-zero (expected: modules_install -------- we only need Image.lz4)"
           IMG=$(find out -name 'Image.lz4' | head -1)
-          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â real build failure"; exit 1; fi
+          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced -------- real build failure"; exit 1; fi
           echo "Kernel image built: $IMG"
           mkdir -p dist
           cp "$IMG" dist/Image.lz4
