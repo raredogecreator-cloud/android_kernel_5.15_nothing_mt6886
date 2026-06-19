@@ -83,93 +83,10 @@ jobs:
           print('kallsyms patched')
           "
           grep -B2 -A10 "Hide KSU" kernel/kallsyms.c
-          # v5: VFS stealth — /data/adb/* returns ENOENT for apps
-          cat > /tmp/patch_vfs_stealth.py << 'VFSPATCH'
-import sys
-
-HELPER = """
-/* SukiSU VFS Cloak: return -ENOENT for root-related paths (UID >= 10000) */
-static bool susfs_is_stealth_path(const char *in) {
-    char clean[128];
-    char buf[128];
-    char *segments[16];
-    int seg_count = 0;
-    char *p = buf;
-    char *token;
-    int i, out_idx;
-    if (!in || in[0] != '/' || strncmp(in, "/data/adb/", 10) != 0)
-        return false;
-    if (strscpy(buf, in, sizeof(buf)) < 0)
-        return false;
-    while ((token = strsep(&p, "/")) != NULL) {
-        if (*token == '\\0' || strcmp(token, ".") == 0)
-            continue;
-        if (strcmp(token, "..") == 0) {
-            if (seg_count > 0) seg_count--;
-            continue;
-        }
-        if (seg_count < 16)
-            segments[seg_count++] = token;
-        else
-            return false;
-    }
-    out_idx = 0;
-    clean[out_idx++] = '/';
-    for (i = 0; i < seg_count; i++) {
-        int len = strlen(segments[i]);
-        if (out_idx + len + 1 >= (int)sizeof(clean)) return false;
-        memcpy(clean + out_idx, segments[i], len);
-        out_idx += len;
-        if (i < seg_count - 1)
-            clean[out_idx++] = '/';
-    }
-    clean[out_idx] = '\\0';
-    return (strcmp(clean, "/data/adb/ksu") == 0 ||
-            strcmp(clean, "/data/adb/ksud") == 0 ||
-            strcmp(clean, "/data/adb/modules") == 0 ||
-            strcmp(clean, "/data/adb/lspd") == 0);
-}
-"""
-
-def patch_namei():
-    with open("fs/namei.c") as f: s = f.read()
-    if "linux/cred.h" not in s:
-        s = s.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\n#include <linux/cred.h>\n#include <linux/string.h>")
-    if "susfs_is_stealth_path" not in s:
-        s = s.replace("int user_path_at_empty(int dfd,", HELPER + "\nint user_path_at_empty(int dfd,")
-    old = "\tstruct filename *filename = getname_flags(name, flags, empty);\n\tint ret = filename_lookup(dfd, filename, flags, path, NULL);\n\n\tputname(filename);\n\treturn ret;"
-    new = "\tstruct filename *filename = getname_flags(name, flags, empty);\n\tint ret;\n\n\tif (!IS_ERR(filename) && current_uid().val >= 10000 && filename->name) {\n\t\tif (susfs_is_stealth_path(filename->name)) {\n\t\t\tputname(filename);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tret = filename_lookup(dfd, filename, flags, path, NULL);\n\tputname(filename);\n\treturn ret;"
-    if old in s:
-        s = s.replace(old, new, 1)
-        print("namei.c patched OK")
-    else:
-        print("namei.c MATCH FAILED"); sys.exit(1)
-    with open("fs/namei.c", "w") as f: f.write(s)
-
-def patch_open():
-    with open("fs/open.c") as f: s = f.read()
-    if "linux/cred.h" not in s:
-        s = s.replace("#include <linux/string.h>", "#include <linux/string.h>\n#include <linux/cred.h>")
-    if "susfs_is_stealth_path" not in s:
-        s = s.replace("static long do_sys_openat2(int dfd,", HELPER + "\nstatic long do_sys_openat2(int dfd,")
-    old = "\ttmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tfd = get_unused_fd_flags(how->flags);"
-    new = "\ttmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tif (current_uid().val >= 10000 && tmp->name) {\n\t\tif (susfs_is_stealth_path(tmp->name)) {\n\t\t\tputname(tmp);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tfd = get_unused_fd_flags(how->flags);"
-    if old in s:
-        s = s.replace(old, new, 1)
-        print("open.c patched OK")
-    else:
-        print("open.c MATCH FAILED"); sys.exit(1)
-    with open("fs/open.c", "w") as f: f.write(s)
-
-patch_namei()
-patch_open()
-print("VFS stealth patch complete")
-VFSPATCH
-          python3 /tmp/patch_vfs_stealth.py
-          echo "=== Verify namei.c patch ==="
-          grep -c "susfs_is_stealth_path" fs/namei.c
-          echo "=== Verify open.c patch ==="
-          grep -c "susfs_is_stealth_path" fs/open.c
+          # v5: VFS stealth patch
+          echo "IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwoiIiIKdjUgVkZTIHN0ZWFsdGggcGF0Y2g6IC9kYXRhL2FkYi97a3N1LGtzdWQsbW9kdWxlcyxsc3BkfSByZXR1cm4gLUVOT0VOVCBmb3IgVUlEID49IDEwMDAwClBhdGNoZXMgZnMvbmFtZWkuYyAoc3RhdC9hY2Nlc3MvcmVhZGxpbmspIGFuZCBmcy9vcGVuLmMgKG9wZW4vb3BlbmF0KQpGdWxsIGNhbm9uaWNhbGl6ZXIgaGFuZGxlcyAvLywgLy4vLCAvLi4vIHRyYXZlcnNhbCBhdHRlbXB0cwoiIiIKaW1wb3J0IHN5cwoKSEVMUEVSX0ZVTkMgPSByJycnCi8qIFN1a2lTVSBWRlMgQ2xvYWs6IHJldHVybiAtRU5PRU5UIGZvciByb290LXJlbGF0ZWQgcGF0aHMgKFVJRCA+PSAxMDAwMCkgKi8Kc3RhdGljIGJvb2wgc3VzZnNfaXNfc3RlYWx0aF9wYXRoKGNvbnN0IGNoYXIgKmluKSB7CiAgICBjaGFyIGNsZWFuWzEyOF07CiAgICBjaGFyIGJ1ZlsxMjhdOwogICAgY2hhciAqc2VnbWVudHNbMTZdOwogICAgaW50IHNlZ19jb3VudCA9IDA7CiAgICBjaGFyICpwID0gYnVmOwogICAgY2hhciAqdG9rZW47CiAgICBpbnQgaSwgb3V0X2lkeDsKCiAgICAvKiBGYXN0IHJlamVjdDogb25seSBjaGVjayBwYXRocyBzdGFydGluZyB3aXRoIC9kYXRhL2FkYi8gKi8KICAgIGlmICghaW4gfHwgaW5bMF0gIT0gJy8nIHx8IHN0cm5jbXAoaW4sICIvZGF0YS9hZGIvIiwgMTApICE9IDApCiAgICAgICAgcmV0dXJuIGZhbHNlOwoKICAgIC8qIEJvdW5kZWQgY29weTogcmVqZWN0IHBhdGhzID4gMTI3IGNoYXJzIChmYWxsIHRocm91Z2ggdG8gbm9ybWFsIFZGUykgKi8KICAgIGlmIChzdHJzY3B5KGJ1ZiwgaW4sIHNpemVvZihidWYpKSA8IDApCiAgICAgICAgcmV0dXJuIGZhbHNlOwoKICAgIC8qIENhbm9uaWNhbGl6ZTogY29sbGFwc2UgLy8sIC8uLywgLy4uLyAqLwogICAgd2hpbGUgKCh0b2tlbiA9IHN0cnNlcCgmcCwgIi8iKSkgIT0gTlVMTCkgewogICAgICAgIGlmICgqdG9rZW4gPT0gJ1wwJyB8fCBzdHJjbXAodG9rZW4sICIuIikgPT0gMCkKICAgICAgICAgICAgY29udGludWU7CiAgICAgICAgaWYgKHN0cmNtcCh0b2tlbiwgIi4uIikgPT0gMCkgewogICAgICAgICAgICBpZiAoc2VnX2NvdW50ID4gMCkgc2VnX2NvdW50LS07CiAgICAgICAgICAgIGNvbnRpbnVlOwogICAgICAgIH0KICAgICAgICBpZiAoc2VnX2NvdW50IDwgMTYpCiAgICAgICAgICAgIHNlZ21lbnRzW3NlZ19jb3VudCsrXSA9IHRva2VuOwogICAgICAgIGVsc2UKICAgICAgICAgICAgcmV0dXJuIGZhbHNlOwogICAgfQoKICAgIC8qIFJlY29uc3RydWN0IGNsZWFuIHBhdGggKi8KICAgIG91dF9pZHggPSAwOwogICAgY2xlYW5bb3V0X2lkeCsrXSA9ICcvJzsKICAgIGZvciAoaSA9IDA7IGkgPCBzZWdfY291bnQ7IGkrKykgewogICAgICAgIGludCBsZW4gPSBzdHJsZW4oc2VnbWVudHNbaV0pOwogICAgICAgIGlmIChvdXRfaWR4ICsgbGVuICsgMSA+PSAoaW50KXNpemVvZihjbGVhbikpIHJldHVybiBmYWxzZTsKICAgICAgICBtZW1jcHkoY2xlYW4gKyBvdXRfaWR4LCBzZWdtZW50c1tpXSwgbGVuKTsKICAgICAgICBvdXRfaWR4ICs9IGxlbjsKICAgICAgICBpZiAoaSA8IHNlZ19jb3VudCAtIDEpCiAgICAgICAgICAgIGNsZWFuW291dF9pZHgrK10gPSAnLyc7CiAgICB9CiAgICBjbGVhbltvdXRfaWR4XSA9ICdcMCc7CgogICAgcmV0dXJuIChzdHJjbXAoY2xlYW4sICIvZGF0YS9hZGIva3N1IikgPT0gMCB8fAogICAgICAgICAgICBzdHJjbXAoY2xlYW4sICIvZGF0YS9hZGIva3N1ZCIpID09IDAgfHwKICAgICAgICAgICAgc3RyY21wKGNsZWFuLCAiL2RhdGEvYWRiL21vZHVsZXMiKSA9PSAwIHx8CiAgICAgICAgICAgIHN0cmNtcChjbGVhbiwgIi9kYXRhL2FkYi9sc3BkIikgPT0gMCk7Cn0KJycnCgpkZWYgcGF0Y2hfbmFtZWkoKToKICAgIHdpdGggb3BlbigiZnMvbmFtZWkuYyIpIGFzIGY6CiAgICAgICAgcyA9IGYucmVhZCgpCgogICAgIyBBZGQgaW5jbHVkZXMKICAgIGlmICJsaW51eC9jcmVkLmgiIG5vdCBpbiBzOgogICAgICAgIHMgPSBzLnJlcGxhY2UoIiNpbmNsdWRlIDxsaW51eC91YWNjZXNzLmg+IiwKICAgICAgICAgICAgICAgICAgICAgICAiI2luY2x1ZGUgPGxpbnV4L3VhY2Nlc3MuaD5cbiNpbmNsdWRlIDxsaW51eC9jcmVkLmg+XG4jaW5jbHVkZSA8bGludXgvc3RyaW5nLmg+IikKCiAgICAjIEFkZCBoZWxwZXIgZnVuY3Rpb24gYmVmb3JlIHVzZXJfcGF0aF9hdF9lbXB0eQogICAgaWYgInN1c2ZzX2lzX3N0ZWFsdGhfcGF0aCIgbm90IGluIHM6CiAgICAgICAgcyA9IHMucmVwbGFjZSgKICAgICAgICAgICAgImludCB1c2VyX3BhdGhfYXRfZW1wdHkoaW50IGRmZCwiLAogICAgICAgICAgICBIRUxQRVJfRlVOQyArICJcbmludCB1c2VyX3BhdGhfYXRfZW1wdHkoaW50IGRmZCwiKQoKICAgICMgUGF0Y2ggdXNlcl9wYXRoX2F0X2VtcHR5CiAgICBvbGQgPSAoIlx0c3RydWN0IGZpbGVuYW1lICpmaWxlbmFtZSA9IGdldG5hbWVfZmxhZ3MobmFtZSwgZmxhZ3MsIGVtcHR5KTtcbiIKICAgICAgICAgICAiXHRpbnQgcmV0ID0gZmlsZW5hbWVfbG9va3VwKGRmZCwgZmlsZW5hbWUsIGZsYWdzLCBwYXRoLCBOVUxMKTtcbiIKICAgICAgICAgICAiXG4iCiAgICAgICAgICAgIlx0cHV0bmFtZShmaWxlbmFtZSk7XG4iCiAgICAgICAgICAgIlx0cmV0dXJuIHJldDsiKQoKICAgIG5ldyA9ICgiXHRzdHJ1Y3QgZmlsZW5hbWUgKmZpbGVuYW1lID0gZ2V0bmFtZV9mbGFncyhuYW1lLCBmbGFncywgZW1wdHkpO1xuIgogICAgICAgICAgICJcdGludCByZXQ7XG4iCiAgICAgICAgICAgIlxuIgogICAgICAgICAgICJcdC8qIFN1a2lTVSBDbG9hazogcmV0dXJuIEVOT0VOVCBmb3Igcm9vdC1yZWxhdGVkIHBhdGhzICovXG4iCiAgICAgICAgICAgIlx0aWYgKCFJU19FUlIoZmlsZW5hbWUpICYmIGN1cnJlbnRfdWlkKCkudmFsID49IDEwMDAwICYmIGZpbGVuYW1lLT5uYW1lKSB7XG4iCiAgICAgICAgICAgIlx0XHRpZiAoc3VzZnNfaXNfc3RlYWx0aF9wYXRoKGZpbGVuYW1lLT5uYW1lKSkge1xuIgogICAgICAgICAgICJcdFx0XHRwdXRuYW1lKGZpbGVuYW1lKTtcbiIKICAgICAgICAgICAiXHRcdFx0cmV0dXJuIC1FTk9FTlQ7XG4iCiAgICAgICAgICAgIlx0XHR9XG4iCiAgICAgICAgICAgIlx0fVxuIgogICAgICAgICAgICJcbiIKICAgICAgICAgICAiXHRyZXQgPSBmaWxlbmFtZV9sb29rdXAoZGZkLCBmaWxlbmFtZSwgZmxhZ3MsIHBhdGgsIE5VTEwpO1xuIgogICAgICAgICAgICJcdHB1dG5hbWUoZmlsZW5hbWUpO1xuIgogICAgICAgICAgICJcdHJldHVybiByZXQ7IikKCiAgICBpZiBvbGQgaW4gczoKICAgICAgICBzID0gcy5yZXBsYWNlKG9sZCwgbmV3LCAxKQogICAgICAgIHByaW50KCJuYW1laS5jOiB1c2VyX3BhdGhfYXRfZW1wdHkgcGF0Y2hlZCBPSyIpCiAgICBlbHNlOgogICAgICAgIHByaW50KCJuYW1laS5jOiBXQVJOSU5HIC0gY291bGQgbm90IGZpbmQgZXhhY3QgbWF0Y2ggZm9yIHVzZXJfcGF0aF9hdF9lbXB0eSIpCiAgICAgICAgc3lzLmV4aXQoMSkKCiAgICB3aXRoIG9wZW4oImZzL25hbWVpLmMiLCAidyIpIGFzIGY6CiAgICAgICAgZi53cml0ZShzKQoKZGVmIHBhdGNoX29wZW4oKToKICAgIHdpdGggb3BlbigiZnMvb3Blbi5jIikgYXMgZjoKICAgICAgICBzID0gZi5yZWFkKCkKCiAgICAjIEFkZCBjcmVkLmggaW5jbHVkZSAoc3RyaW5nLmggYWxyZWFkeSBwcmVzZW50KQogICAgaWYgImxpbnV4L2NyZWQuaCIgbm90IGluIHM6CiAgICAgICAgcyA9IHMucmVwbGFjZSgiI2luY2x1ZGUgPGxpbnV4L3N0cmluZy5oPiIsCiAgICAgICAgICAgICAgICAgICAgICAgIiNpbmNsdWRlIDxsaW51eC9zdHJpbmcuaD5cbiNpbmNsdWRlIDxsaW51eC9jcmVkLmg+IikKCiAgICAjIEFkZCBoZWxwZXIgZnVuY3Rpb24gYmVmb3JlIGRvX3N5c19vcGVuYXQyCiAgICBpZiAic3VzZnNfaXNfc3RlYWx0aF9wYXRoIiBub3QgaW4gczoKICAgICAgICBzID0gcy5yZXBsYWNlKAogICAgICAgICAgICAic3RhdGljIGxvbmcgZG9fc3lzX29wZW5hdDIoaW50IGRmZCwiLAogICAgICAgICAgICBIRUxQRVJfRlVOQyArICJcbnN0YXRpYyBsb25nIGRvX3N5c19vcGVuYXQyKGludCBkZmQsIikKCiAgICAjIFBhdGNoIGRvX3N5c19vcGVuYXQyCiAgICBvbGQgPSAoIlx0dG1wID0gZ2V0bmFtZShmaWxlbmFtZSk7XG4iCiAgICAgICAgICAgIlx0aWYgKElTX0VSUih0bXApKVxuIgogICAgICAgICAgICJcdFx0cmV0dXJuIFBUUl9FUlIodG1wKTtcbiIKICAgICAgICAgICAiXG4iCiAgICAgICAgICAgIlx0ZmQgPSBnZXRfdW51c2VkX2ZkX2ZsYWdzKGhvdy0+ZmxhZ3MpOyIpCgogICAgbmV3ID0gKCJcdHRtcCA9IGdldG5hbWUoZmlsZW5hbWUpO1xuIgogICAgICAgICAgICJcdGlmIChJU19FUlIodG1wKSlcbiIKICAgICAgICAgICAiXHRcdHJldHVybiBQVFJfRVJSKHRtcCk7XG4iCiAgICAgICAgICAgIlxuIgogICAgICAgICAgICJcdC8qIFN1a2lTVSBDbG9hazogcmV0dXJuIEVOT0VOVCBmb3Igcm9vdC1yZWxhdGVkIHBhdGhzICovXG4iCiAgICAgICAgICAgIlx0aWYgKGN1cnJlbnRfdWlkKCkudmFsID49IDEwMDAwICYmIHRtcC0+bmFtZSkge1xuIgogICAgICAgICAgICJcdFx0aWYgKHN1c2ZzX2lzX3N0ZWFsdGhfcGF0aCh0bXAtPm5hbWUpKSB7XG4iCiAgICAgICAgICAgIlx0XHRcdHB1dG5hbWUodG1wKTtcbiIKICAgICAgICAgICAiXHRcdFx0cmV0dXJuIC1FTk9FTlQ7XG4iCiAgICAgICAgICAgIlx0XHR9XG4iCiAgICAgICAgICAgIlx0fVxuIgogICAgICAgICAgICJcbiIKICAgICAgICAgICAiXHRmZCA9IGdldF91bnVzZWRfZmRfZmxhZ3MoaG93LT5mbGFncyk7IikKCiAgICBpZiBvbGQgaW4gczoKICAgICAgICBzID0gcy5yZXBsYWNlKG9sZCwgbmV3LCAxKQogICAgICAgIHByaW50KCJvcGVuLmM6IGRvX3N5c19vcGVuYXQyIHBhdGNoZWQgT0siKQogICAgZWxzZToKICAgICAgICBwcmludCgib3Blbi5jOiBXQVJOSU5HIC0gY291bGQgbm90IGZpbmQgZXhhY3QgbWF0Y2ggZm9yIGRvX3N5c19vcGVuYXQyIikKICAgICAgICBzeXMuZXhpdCgxKQoKICAgIHdpdGggb3BlbigiZnMvb3Blbi5jIiwgInciKSBhcyBmOgogICAgICAgIGYud3JpdGUocykKCmlmIF9fbmFtZV9fID09ICJfX21haW5fXyI6CiAgICBwYXRjaF9uYW1laSgpCiAgICBwYXRjaF9vcGVuKCkKICAgIHByaW50KCJWRlMgc3RlYWx0aCBwYXRjaCBjb21wbGV0ZSIpCg==" | base64 -d > /tmp/patch_vfs.py
+          python3 /tmp/patch_vfs.py
+          grep -c susfs_is_stealth_path fs/namei.c fs/open.c
 
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
