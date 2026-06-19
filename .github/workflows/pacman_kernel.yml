@@ -83,31 +83,93 @@ jobs:
           print('kallsyms patched')
           "
           grep -B2 -A10 "Hide KSU" kernel/kallsyms.c
-          # v5: Patch /data/adb/* paths to return ENOENT instead of EACCES for apps
-          # Simple strcmp first (no canonicalizer) — exact paths only
-          python3 -c "
-          f=open('fs/namei.c');s=f.read();f.close()
-          # Add cred.h include if not present
-          if 'linux/cred.h' not in s:
-              s=s.replace('#include <linux/namei.h>','#include <linux/namei.h>\n#include <linux/cred.h>',1)
-          # Patch user_path_at_empty
-          old='struct filename *filename = getname_flags(name, flags, empty);\n\tint ret = filename_lookup(dfd, filename, flags, path, NULL);\n\n\tputname(filename);\n\treturn ret;'
-          new='struct filename *filename = getname_flags(name, flags, empty);\n\tint ret;\n\n\tif (!IS_ERR(filename) && current_uid().val >= 10000 && filename->name) {\n\t\tconst char *n = filename->name;\n\t\tif (strcmp(n, \"/data/adb/ksu\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/ksud\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/modules\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/lspd\") == 0) {\n\t\t\tputname(filename);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tret = filename_lookup(dfd, filename, flags, path, NULL);\n\tputname(filename);\n\treturn ret;'
-          s=s.replace(old,new,1)
-          f=open('fs/namei.c','w');f.write(s);f.close()
-          print('namei.c patched')
-          "
-          python3 -c "
-          f=open('fs/open.c');s=f.read();f.close()
-          if 'linux/cred.h' not in s:
-              s=s.replace('#include <linux/file.h>','#include <linux/file.h>\n#include <linux/cred.h>',1)
-          old='tmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tfd = get_unused_fd_flags(how->flags);'
-          new='tmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tif (current_uid().val >= 10000 && tmp->name) {\n\t\tconst char *n = tmp->name;\n\t\tif (strcmp(n, \"/data/adb/ksu\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/ksud\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/modules\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/lspd\") == 0) {\n\t\t\tputname(tmp);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tfd = get_unused_fd_flags(how->flags);'
-          s=s.replace(old,new,1)
-          f=open('fs/open.c','w');f.write(s);f.close()
-          print('open.c patched')
-          "
-          grep -B2 -A8 "SukiSU\|ENOENT\|stealth\|data.adb" fs/namei.c fs/open.c || true
+          # v5: VFS stealth — /data/adb/* returns ENOENT for apps
+          cat > /tmp/patch_vfs_stealth.py << 'VFSPATCH'
+import sys
+
+HELPER = """
+/* SukiSU VFS Cloak: return -ENOENT for root-related paths (UID >= 10000) */
+static bool susfs_is_stealth_path(const char *in) {
+    char clean[128];
+    char buf[128];
+    char *segments[16];
+    int seg_count = 0;
+    char *p = buf;
+    char *token;
+    int i, out_idx;
+    if (!in || in[0] != '/' || strncmp(in, "/data/adb/", 10) != 0)
+        return false;
+    if (strscpy(buf, in, sizeof(buf)) < 0)
+        return false;
+    while ((token = strsep(&p, "/")) != NULL) {
+        if (*token == '\\0' || strcmp(token, ".") == 0)
+            continue;
+        if (strcmp(token, "..") == 0) {
+            if (seg_count > 0) seg_count--;
+            continue;
+        }
+        if (seg_count < 16)
+            segments[seg_count++] = token;
+        else
+            return false;
+    }
+    out_idx = 0;
+    clean[out_idx++] = '/';
+    for (i = 0; i < seg_count; i++) {
+        int len = strlen(segments[i]);
+        if (out_idx + len + 1 >= (int)sizeof(clean)) return false;
+        memcpy(clean + out_idx, segments[i], len);
+        out_idx += len;
+        if (i < seg_count - 1)
+            clean[out_idx++] = '/';
+    }
+    clean[out_idx] = '\\0';
+    return (strcmp(clean, "/data/adb/ksu") == 0 ||
+            strcmp(clean, "/data/adb/ksud") == 0 ||
+            strcmp(clean, "/data/adb/modules") == 0 ||
+            strcmp(clean, "/data/adb/lspd") == 0);
+}
+"""
+
+def patch_namei():
+    with open("fs/namei.c") as f: s = f.read()
+    if "linux/cred.h" not in s:
+        s = s.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\n#include <linux/cred.h>\n#include <linux/string.h>")
+    if "susfs_is_stealth_path" not in s:
+        s = s.replace("int user_path_at_empty(int dfd,", HELPER + "\nint user_path_at_empty(int dfd,")
+    old = "\tstruct filename *filename = getname_flags(name, flags, empty);\n\tint ret = filename_lookup(dfd, filename, flags, path, NULL);\n\n\tputname(filename);\n\treturn ret;"
+    new = "\tstruct filename *filename = getname_flags(name, flags, empty);\n\tint ret;\n\n\tif (!IS_ERR(filename) && current_uid().val >= 10000 && filename->name) {\n\t\tif (susfs_is_stealth_path(filename->name)) {\n\t\t\tputname(filename);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tret = filename_lookup(dfd, filename, flags, path, NULL);\n\tputname(filename);\n\treturn ret;"
+    if old in s:
+        s = s.replace(old, new, 1)
+        print("namei.c patched OK")
+    else:
+        print("namei.c MATCH FAILED"); sys.exit(1)
+    with open("fs/namei.c", "w") as f: f.write(s)
+
+def patch_open():
+    with open("fs/open.c") as f: s = f.read()
+    if "linux/cred.h" not in s:
+        s = s.replace("#include <linux/string.h>", "#include <linux/string.h>\n#include <linux/cred.h>")
+    if "susfs_is_stealth_path" not in s:
+        s = s.replace("static long do_sys_openat2(int dfd,", HELPER + "\nstatic long do_sys_openat2(int dfd,")
+    old = "\ttmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tfd = get_unused_fd_flags(how->flags);"
+    new = "\ttmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tif (current_uid().val >= 10000 && tmp->name) {\n\t\tif (susfs_is_stealth_path(tmp->name)) {\n\t\t\tputname(tmp);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tfd = get_unused_fd_flags(how->flags);"
+    if old in s:
+        s = s.replace(old, new, 1)
+        print("open.c patched OK")
+    else:
+        print("open.c MATCH FAILED"); sys.exit(1)
+    with open("fs/open.c", "w") as f: f.write(s)
+
+patch_namei()
+patch_open()
+print("VFS stealth patch complete")
+VFSPATCH
+          python3 /tmp/patch_vfs_stealth.py
+          echo "=== Verify namei.c patch ==="
+          grep -c "susfs_is_stealth_path" fs/namei.c
+          echo "=== Verify open.c patch ==="
+          grep -c "susfs_is_stealth_path" fs/open.c
 
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
