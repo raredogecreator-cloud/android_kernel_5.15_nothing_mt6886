@@ -78,7 +78,7 @@ jobs:
           python3 -c "
           f=open('kernel/kallsyms.c');s=f.read();f.close()
           o=chr(9)+'if (!iter->name[0])'+chr(10)+chr(9)+chr(9)+'return 0;'
-          n=o+chr(10)+chr(10)+chr(9)+'/* Hide KSU/SUSFS symbols from apps */'+chr(10)+chr(9)+'if (current_uid().val >= 10000) {'+chr(10)+chr(9)+chr(9)+'if (strstr(iter->name, '+chr(34)+'ksu_'+chr(34)+') || strstr(iter->name, '+chr(34)+'susfs_'+chr(34)+') || strstr(iter->name, '+chr(34)+'sukisu_kpm'+chr(34)+'))'+chr(10)+chr(9)+chr(9)+chr(9)+'return 0;'+chr(10)+chr(9)+'}'
+          n=o+chr(10)+chr(10)+chr(9)+'/* Hide KSU/SUSFS symbols from apps */'+chr(10)+chr(9)+'if (current_uid().val >= 10000) {'+chr(10)+chr(9)+chr(9)+'if (strstr(iter->name, '+chr(34)+'ksu_'+chr(34)+') || strstr(iter->name, '+chr(34)+'susfs_'+chr(34)+') || strstr(iter->name, '+chr(34)+'_kpm'+chr(34)+'))'+chr(10)+chr(9)+chr(9)+chr(9)+'return 0;'+chr(10)+chr(9)+'}'
           f=open('kernel/kallsyms.c','w');f.write(s.replace(o,n,1));f.close()
           print('kallsyms patched')
           "
