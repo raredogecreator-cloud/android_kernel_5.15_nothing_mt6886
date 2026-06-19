@@ -83,6 +83,31 @@ jobs:
           print('kallsyms patched')
           "
           grep -B2 -A10 "Hide KSU" kernel/kallsyms.c
+          # v5: Patch /data/adb/* paths to return ENOENT instead of EACCES for apps
+          # Simple strcmp first (no canonicalizer) — exact paths only
+          python3 -c "
+          f=open('fs/namei.c');s=f.read();f.close()
+          # Add cred.h include if not present
+          if 'linux/cred.h' not in s:
+              s=s.replace('#include <linux/namei.h>','#include <linux/namei.h>\n#include <linux/cred.h>',1)
+          # Patch user_path_at_empty
+          old='struct filename *filename = getname_flags(name, flags, empty);\n\tint ret = filename_lookup(dfd, filename, flags, path, NULL);\n\n\tputname(filename);\n\treturn ret;'
+          new='struct filename *filename = getname_flags(name, flags, empty);\n\tint ret;\n\n\tif (!IS_ERR(filename) && current_uid().val >= 10000 && filename->name) {\n\t\tconst char *n = filename->name;\n\t\tif (strcmp(n, \"/data/adb/ksu\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/ksud\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/modules\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/lspd\") == 0) {\n\t\t\tputname(filename);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tret = filename_lookup(dfd, filename, flags, path, NULL);\n\tputname(filename);\n\treturn ret;'
+          s=s.replace(old,new,1)
+          f=open('fs/namei.c','w');f.write(s);f.close()
+          print('namei.c patched')
+          "
+          python3 -c "
+          f=open('fs/open.c');s=f.read();f.close()
+          if 'linux/cred.h' not in s:
+              s=s.replace('#include <linux/file.h>','#include <linux/file.h>\n#include <linux/cred.h>',1)
+          old='tmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tfd = get_unused_fd_flags(how->flags);'
+          new='tmp = getname(filename);\n\tif (IS_ERR(tmp))\n\t\treturn PTR_ERR(tmp);\n\n\tif (current_uid().val >= 10000 && tmp->name) {\n\t\tconst char *n = tmp->name;\n\t\tif (strcmp(n, \"/data/adb/ksu\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/ksud\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/modules\") == 0 ||\n\t\t    strcmp(n, \"/data/adb/lspd\") == 0) {\n\t\t\tputname(tmp);\n\t\t\treturn -ENOENT;\n\t\t}\n\t}\n\n\tfd = get_unused_fd_flags(how->flags);'
+          s=s.replace(old,new,1)
+          f=open('fs/open.c','w');f.write(s);f.close()
+          print('open.c patched')
+          "
+          grep -B2 -A8 "SukiSU\|ENOENT\|stealth\|data.adb" fs/namei.c fs/open.c || true
 
       - name: Verify build config + KSU/SUSFS fragment present
         run: |
@@ -97,11 +122,11 @@ jobs:
           export SOURCE_DATE_EPOCH=1758037939
           export BUILD_CONFIG=common/build.config.pacman_ksu
           # build.sh fails at modules_install because we build NO modules
-          # (vendor modules stay stock on device — GKI stable KMI). The kernel
+          # (vendor modules stay stock on device â€” GKI stable KMI). The kernel
           # Image.lz4 is produced BEFORE that step, so capture it regardless.
-          build/build.sh || echo "build.sh non-zero (expected: modules_install — we only need Image.lz4)"
+          build/build.sh || echo "build.sh non-zero (expected: modules_install â€” we only need Image.lz4)"
           IMG=$(find out -name 'Image.lz4' | head -1)
-          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced — real build failure"; exit 1; fi
+          if [ -z "$IMG" ]; then echo "ERROR: Image.lz4 not produced â€” real build failure"; exit 1; fi
           echo "Kernel image built: $IMG"
           mkdir -p dist
           cp "$IMG" dist/Image.lz4
