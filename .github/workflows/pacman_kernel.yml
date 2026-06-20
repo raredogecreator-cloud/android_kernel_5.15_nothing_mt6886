@@ -151,12 +151,18 @@ jobs:
           # Decompress Image.lz4 to raw Image
           lz4 -d Image.lz4 Image || { echo "ERROR: lz4 decompress failed"; exit 1; }
           echo "Raw Image size: $(stat -c%s Image)"
-          # Download prebuilt patch_linux (pinned version)
-          curl -fL -o patch_linux \
-            "https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux"
+          # Build patch_linux from source (release 0.13.0 is too old for SukiSU 4.1.3)
+          git clone --recursive https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch.git kp_source
+          cd kp_source
+          chmod +x build.sh
+          ./build.sh || { echo "ERROR: SukiSU_KernelPatch_patch build failed"; exit 1; }
+          PATCH_BIN=$(find . -name 'patch_linux' -type f -executable | head -1)
+          [ -n "$PATCH_BIN" ] || { echo "ERROR: patch_linux not found after source build"; exit 1; }
+          cp "$PATCH_BIN" ../patch_linux
+          cd ..
           chmod +x patch_linux
           file patch_linux
-          # Inject KPM runtime — patches stub functions with real implementation
+          # Inject KPM runtime
           ./patch_linux || { echo "ERROR: patch_linux failed"; exit 1; }
           # Verify output
           [ -f oImage ] || { echo "ERROR: oImage not produced"; exit 1; }
