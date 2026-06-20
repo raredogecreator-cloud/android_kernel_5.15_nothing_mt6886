@@ -152,6 +152,9 @@ jobs:
           lz4 -d Image.lz4 Image || { echo "ERROR: lz4 decompress failed"; exit 1; }
           echo "Raw Image size: $(stat -c%s Image)"
           # Build patch_linux from source (release 0.13.0 is too old for SukiSU 4.1.3)
+          # Ensure host build tools available (kernel build may have altered PATH)
+          sudo apt-get install -y --no-install-recommends cmake gcc g++ make >/dev/null 2>&1
+          export CC=gcc CXX=g++
           git clone --recursive https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch.git kp_source
           cd kp_source
           chmod +x build.sh
