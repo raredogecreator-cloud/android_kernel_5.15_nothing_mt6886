@@ -151,18 +151,9 @@ jobs:
           # Decompress Image.lz4 to raw Image
           lz4 -d Image.lz4 Image || { echo "ERROR: lz4 decompress failed"; exit 1; }
           echo "Raw Image size: $(stat -c%s Image)"
-          # Build patch_linux from source (release 0.13.0 is too old for SukiSU 4.1.3)
-          # Ensure host build tools available (kernel build may have altered PATH)
-          sudo apt-get install -y --no-install-recommends cmake gcc g++ make >/dev/null 2>&1
-          export CC=gcc CXX=g++
-          git clone --recursive https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch.git kp_source
-          cd kp_source
-          chmod +x build.sh
-          ./build.sh || { echo "ERROR: SukiSU_KernelPatch_patch build failed"; exit 1; }
-          PATCH_BIN=$(find . -name 'patch_linux' -type f -executable | head -1)
-          [ -n "$PATCH_BIN" ] || { echo "ERROR: patch_linux not found after source build"; exit 1; }
-          cp "$PATCH_BIN" ../patch_linux
-          cd ..
+          # Get latest patch_linux from SukiSU_patch (maintained prebuilt, matches current SukiSU)
+          git clone --depth 1 https://github.com/ShirkNeko/SukiSU_patch.git sukisu_patch
+          cp sukisu_patch/kpm/patch_linux .
           chmod +x patch_linux
           file patch_linux
           # Inject KPM runtime
